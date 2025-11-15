@@ -1,13 +1,14 @@
 import random
 import telebot
 from random import randint, choice
+from datetime import datetime, timedelta
 import config  
 
 bot = telebot.TeleBot(config.token)
 
 
 class Pokemon:
-    pokemons = {}  
+    pokemons = {}
 
     def __init__(self, name, trainer):
         self.name = name
@@ -16,7 +17,7 @@ class Pokemon:
         self.power = random.randint(10, 30)
         self.max_hp = 120
         self.pokemon_class = "Обычный"
-        self.last_feed_time = 0
+        self.last_feed_time = datetime.min  # время последнего кормления
 
     def info(self):
         return f"Класс: {self.pokemon_class}\nПокемон: {self.name}, HP: {self.hp}, Сила: {self.power}"
@@ -35,13 +36,18 @@ class Pokemon:
         restored = self.hp - old_hp
         return f"💚 {self.name} восстановил {restored} HP (текущее HP: {self.hp})"
 
-    # ⭐️ ДОБАВЛЕНО: метод кормления
-    def feed(self):
-        feed_points = 20
-        old_hp = self.hp
-        self.hp = min(self.hp + feed_points, self.max_hp)
-        restored = self.hp - old_hp
-        return f"🍎 {self.name} поел и восстановил {restored} HP! (HP сейчас: {self.hp})"
+    
+    def feed(self, feed_interval=20, hp_increase=10):
+        current_time = datetime.now()
+        delta_time = timedelta(seconds=feed_interval)
+
+        if (current_time - self.last_feed_time) >= delta_time:
+            self.hp = min(self.hp + hp_increase, self.max_hp)
+            self.last_feed_time = current_time
+            return f"🍎 {self.name} поел и восстановил {hp_increase} HP! Текущее HP: {self.hp}"
+        else:
+            next_feed_time = self.last_feed_time + delta_time
+            return f"⏳ Рано! Следующее кормление в: {next_feed_time.strftime('%H:%M:%S')}"
 
     def attack(self, enemy):
         if isinstance(enemy, Wizard) and random.randint(1, 5) == 1:
@@ -54,20 +60,8 @@ class Pokemon:
             enemy.hp = 0
             bonus_text = self.win_bonus()
             del Pokemon.pokemons[enemy.pokemon_trainer]
-            return f"🏆 Победа @{self.pokemon_trainer} над @{enemy.pokemon_trainer}!\n{bonus_text}\n❌ {enemy.name} был побежден и больше не доступен."
+            return f"🏆 Победа @{self.pokemon_trainer} над @{enemy.pokemon_trainer}!\n{bonus_text}\n❌ {enemy.name} был побежден."
 
-
-class Fighter(Pokemon):
-    def __init__(self, trainer_name):
-        super().__init__("Fighter", trainer_name)
-        self.pokemon_class = "Боец"
-
-    def attack(self, enemy):
-        super_power = random.randint(5, 15)
-        self.power += super_power
-        result = super().attack(enemy)
-        self.power -= super_power
-        return f"{result}\n💥 Боец применил супер-атаку силой: {super_power}!"
 
 
 class Wizard(Pokemon):
@@ -75,8 +69,29 @@ class Wizard(Pokemon):
         super().__init__("Wizard", trainer_name)
         self.pokemon_class = "Волшебник"
 
+    
+    def feed(self, feed_interval=20, hp_increase=20):
+        return super().feed(feed_interval, hp_increase)
+
     def attack(self, enemy):
         return super().attack(enemy)
+
+
+class Fighter(Pokemon):
+    def __init__(self, trainer_name):
+        super().__init__("Fighter", trainer_name)
+        self.pokemon_class = "Боец"
+
+    
+    def feed(self, feed_interval=10, hp_increase=10):
+        return super().feed(feed_interval, hp_increase)
+
+    def attack(self, enemy):
+        super_power = random.randint(5, 15)
+        self.power += super_power
+        result = super().attack(enemy)
+        self.power -= super_power
+        return f"{result}\n💥 Боец применил супер-атаку силой: {super_power}!"
 
 
 class SuperFighter(Fighter):
@@ -102,8 +117,12 @@ class ShieldWizard(Wizard):
 
     def attack(self, enemy):
         if random.randint(1, 4) == 1:
-            return f"🛡 {self.name} активировал магический щит и защитился от атаки!"
+            return f"🛡 {self.name} активировал магический щит и защитился!"
         return super().attack(enemy)
+
+
+
+
 
 
 @bot.message_handler(commands=['go'])
@@ -127,6 +146,7 @@ def start(message):
     else:
         bot.reply_to(message, "Ты уже создал себе покемона!")
 
+
 @bot.message_handler(commands=['attack'])
 def attack_pok(message):
     if message.reply_to_message:
@@ -142,14 +162,9 @@ def attack_pok(message):
     else:
         bot.send_message(message.chat.id, "Ответь на сообщение того, кого хочешь атаковать!")
 
-@bot.message_handler(commands=['heal'])
-def heal_pok(message):
-    username = message.from_user.username
-    if username in Pokemon.pokemons:
-        pok = Pokemon.pokemons[username]
-        bot.send_message(message.chat.id, pok.heal())
-    else:
-        bot.send_message(message.chat.id, "Ты ещё не создал покемона! Используй команду /go")
+
+
+
 
 
 @bot.message_handler(commands=['feed'])
@@ -161,44 +176,20 @@ def feed_pok(message):
     else:
         bot.send_message(message.chat.id, "У тебя нет покемона. Создай его командой /go")
 
+
 @bot.message_handler(commands=['help', 'start'])
 def send_welcome(message):
     bot.reply_to(message, "Привет! Я бот-помощник и покемон-бот. 🐾\nКоманды:\n/go - создать покемона\n/attack - атаковать\n/heal - восстановить здоровье\n/feed - накормить покемона\n/coin - монета\n/info - информация о боте")
+
 
 @bot.message_handler(commands=['coin'])
 def coin_handler(message):
     bot.reply_to(message, choice(["ОРЕЛ", "РЕШКА"]))
 
+
 @bot.message_handler(commands=['info'])
 def send_info(message):
     bot.reply_to(message, "Я дружелюбный бот, который может кидать монетку и играть с покемонами!")
 
-@bot.message_handler(func=lambda message: True)
-def check_links(message):
-    if message.text and "https://" in message.text:
-        try:
-            user_status = bot.get_chat_member(message.chat.id, message.from_user.id).status
-            if user_status not in ['administrator', 'creator']:
-                bot.ban_chat_member(message.chat.id, message.from_user.id)
-                bot.reply_to(message, "Пользователь был забанен за ссылку!")
-        except:
-            pass
-
-@bot.message_handler(commands=['ban'])
-def ban_user(message):
-    if not message.reply_to_message:
-        bot.reply_to(message, "Ответь на сообщение того, кого хочешь забанить.")
-        return
-    chat_id = message.chat.id
-    user_id = message.reply_to_message.from_user.id
-    try:
-        user_status = bot.get_chat_member(chat_id, user_id).status
-        if user_status in ['administrator', 'creator']:
-            bot.reply_to(message, "Невозможно забанить администратора.")
-            return
-        bot.ban_chat_member(chat_id, user_id)
-        bot.reply_to(message, "Пользователь был забанен.")
-    except:
-        bot.reply_to(message, "Не удалось забанить пользователя.")
 
 bot.infinity_polling()
